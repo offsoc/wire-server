@@ -1,0 +1,60 @@
+name: 构建 Wire-Server
+
+on:
+  push:
+    branches:
+      - main  # 对于主要的分支，可以调整为你的主分支名称
+  pull_request:
+    branches:
+      - main  # 当创建或更新针对主要分支的拉取请求时触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 检出代码仓库
+      uses: actions/checkout@v3
+
+    - name: 安装 Docker
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y docker.io
+        sudo systemctl start docker
+        sudo systemctl enable docker
+        sudo usermod -aG docker $USER
+
+    - name: 验证 Docker 安装
+      run: docker --version
+
+    - name: 安装 Nix
+      run: curl -L https://nixos.org/nix/install | sh
+
+    - name: 设置 Nix 环境
+      run: |
+        . /home/runner/.nix-profile/etc/profile.d/nix.sh
+        nix run --experimental-features 'nix-command flakes' github:nixos/nixpkgs/nixpkgs-unstable#cachix -- use wire-server
+
+    - name: 安装 Direnv
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y direnv
+
+    - name: 初始化 Git 子模块
+      run: |
+        git submodule update --init --recursive
+
+    - name: 允许 Direnv
+      run: direnv allow
+
+    - name: 更新 Cabal
+      run: cabal update
+
+    - name: 使用 Make 进行构建
+      run: make c
+
+    - name: 启动后台服务并运行测试
+      run: |
+        ./deploy/dockerephemeral/run.sh &
+        ulimit 10240
+        make ci-safe
