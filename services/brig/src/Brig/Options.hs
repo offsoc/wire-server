@@ -224,6 +224,8 @@ instance FromJSON ProviderOpts
 data TeamOpts = TeamOpts
   { -- | Team Invitation URL template
     tInvitationUrl :: !Text,
+    -- | Existing User Invitation URL template
+    tExistingUserInvitationUrl :: !Text,
     -- | Team Activation URL template
     tActivationUrl :: !Text,
     -- | Team Creator Welcome URL
@@ -388,7 +390,7 @@ data Opts = Opts
     -- | SFT Federation
     multiSFT :: !(Maybe Bool),
     -- | RabbitMQ settings, required when federation is enabled.
-    rabbitmq :: !(Maybe RabbitMqOpts),
+    rabbitmq :: !(Maybe AmqpEndpoint),
     -- | AWS settings
     aws :: !AWSOpts,
     -- | Enable Random Prekey Strategy
