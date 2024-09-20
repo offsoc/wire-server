@@ -29,7 +29,6 @@
 , conduit
 , containers
 , cookie
-, cql
 , cryptobox-haskell
 , crypton
 , currency-codes
@@ -52,6 +51,8 @@
 , gitignoreSource
 , gundeck-types
 , hashable
+, hs-opentelemetry-instrumentation-wai
+, hs-opentelemetry-sdk
 , hscim
 , HsOpenSSL
 , http-api-data
@@ -128,7 +129,6 @@
 , template-haskell
 , temporary
 , text
-, text-icu-translit
 , time
 , time-out
 , time-units
@@ -153,6 +153,7 @@
 , warp-tls
 , wire-api
 , wire-api-federation
+, wire-otel
 , wire-subsystems
 , yaml
 , zauth
@@ -187,7 +188,6 @@ mkDerivation {
     conduit
     containers
     cookie
-    cql
     cryptobox-haskell
     crypton
     currency-codes
@@ -206,6 +206,8 @@ mkDerivation {
     galley-types
     gundeck-types
     hashable
+    hs-opentelemetry-instrumentation-wai
+    hs-opentelemetry-sdk
     HsOpenSSL
     http-client
     http-client-openssl
@@ -244,7 +246,6 @@ mkDerivation {
     resourcet
     retry
     safe-exceptions
-    saml2-web-sso
     schema-profunctor
     servant
     servant-openapi3
@@ -258,7 +259,6 @@ mkDerivation {
     template
     template-haskell
     text
-    text-icu-translit
     time
     time-out
     time-units
@@ -280,6 +280,7 @@ mkDerivation {
     wai-utilities
     wire-api
     wire-api-federation
+    wire-otel
     wire-subsystems
     zauth
   ];

@@ -58,12 +58,6 @@ data CreateUserResult = CreateUserResult
   }
   deriving (Show)
 
-data CreateUserTeam = CreateUserTeam
-  { createdTeamId :: !TeamId,
-    createdTeamName :: !Text
-  }
-  deriving (Show)
-
 data ActivationResult
   = -- | The key/code was valid and successfully activated.
     ActivationSuccess !(Maybe UserIdentity) !Bool
@@ -176,6 +170,9 @@ data ClientError
   | ClientUserNotFound !UserId
   | ClientLegalHoldCannotBeRemoved
   | ClientLegalHoldCannotBeAdded
+  | -- | this error is thrown if legalhold if incompatible with different features
+    --   for now, this is the case for MLS and federation
+    ClientLegalHoldIncompatible
   | ClientFederationError FederationError
   | ClientCapabilitiesCannotBeRemoved
   | ClientMissingLegalholdConsentOldClients

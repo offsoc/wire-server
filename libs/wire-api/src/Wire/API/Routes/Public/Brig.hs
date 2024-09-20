@@ -471,23 +471,36 @@ type UserHandleAPI =
            )
 
 type AccountAPI =
-  -- docs/reference/user/registration.md {#RefRegistration}
-  --
-  -- This endpoint can lead to the following events being sent:
-  -- - UserActivated event to created user, if it is a team invitation or user has an SSO ID
-  -- - UserIdentityUpdated event to created user, if email code or phone code is provided
   Named
-    "register"
-    ( Summary "Register a new user."
-        :> Description
-             "If the environment where the registration takes \
-             \place is private and a registered email address \
-             \is not whitelisted, a 403 error is returned."
-        :> MakesFederatedCall 'Brig "send-connection-action"
-        :> "register"
-        :> ReqBody '[JSON] NewUserPublic
-        :> MultiVerb 'POST '[JSON] RegisterResponses (Either RegisterError RegisterSuccess)
+    "upgrade-personal-to-team"
+    ( Summary "Upgrade personal user to team owner"
+        :> "upgrade-personal-to-team"
+        :> ZLocalUser
+        :> ReqBody '[JSON] BindingNewTeamUser
+        :> MultiVerb
+             'POST
+             '[JSON]
+             UpgradePersonalToTeamResponses
+             (Either UpgradePersonalToTeamError CreateUserTeam)
     )
+    :<|>
+    -- docs/reference/user/registration.md {#RefRegistration}
+    --
+    -- This endpoint can lead to the following events being sent:
+    -- - UserActivated event to created user, if it is a team invitation or user has an SSO ID
+    -- - UserIdentityUpdated event to created user, if email code or phone code is provided
+    Named
+      "register"
+      ( Summary "Register a new user."
+          :> Description
+               "If the environment where the registration takes \
+               \place is private and a registered email address \
+               \is not whitelisted, a 403 error is returned."
+          :> MakesFederatedCall 'Brig "send-connection-action"
+          :> "register"
+          :> ReqBody '[JSON] NewUserPublic
+          :> MultiVerb 'POST '[JSON] RegisterResponses (Either RegisterError RegisterSuccess)
+      )
     -- This endpoint can lead to the following events being sent:
     -- UserDeleted event to contacts of deleted user
     -- MemberLeave event to members for all conversations the user was in (via galley)
@@ -1178,7 +1191,7 @@ type ConnectionAPI =
            ( Summary "Search for users"
                :> MakesFederatedCall 'Brig "get-users-by-ids"
                :> MakesFederatedCall 'Brig "search-users"
-               :> ZUser
+               :> ZLocalUser
                :> "search"
                :> "contacts"
                :> QueryParam' '[Required, Strict, Description "Search query"] "q" Text
@@ -1380,7 +1393,7 @@ type SearchAPI =
                Description "Number of results to return (min: 1, max: 500, default: 15)"
              ]
              "size"
-             (Range 1 500 Int32)
+             (Range 1 500 Int)
         :> QueryParam'
              [ Optional,
                Strict,

@@ -30,6 +30,8 @@
 , gitignoreSource
 , gundeck-types
 , hedis
+, hs-opentelemetry-instrumentation-wai
+, hs-opentelemetry-sdk
 , HsOpenSSL
 , http-client
 , http-client-tls
@@ -59,6 +61,7 @@
 , safe
 , safe-exceptions
 , scientific
+, servant
 , servant-server
 , string-conversions
 , tagged
@@ -78,11 +81,10 @@
 , wai
 , wai-extra
 , wai-middleware-gunzip
-, wai-predicates
-, wai-routing
 , wai-utilities
 , websockets
 , wire-api
+, wire-otel
 , yaml
 }:
 mkDerivation {
@@ -114,6 +116,8 @@ mkDerivation {
     foldl
     gundeck-types
     hedis
+    hs-opentelemetry-instrumentation-wai
+    hs-opentelemetry-sdk
     http-client
     http-client-tls
     http-types
@@ -130,6 +134,7 @@ mkDerivation {
     resourcet
     retry
     safe-exceptions
+    servant
     servant-server
     text
     time
@@ -143,10 +148,9 @@ mkDerivation {
     wai
     wai-extra
     wai-middleware-gunzip
-    wai-predicates
-    wai-routing
     wai-utilities
     wire-api
+    wire-otel
     yaml
   ];
   executableHaskellDepends = [
@@ -204,7 +208,6 @@ mkDerivation {
     HsOpenSSL
     imports
     lens
-    metrics-wai
     MonadRandom
     mtl
     multiset
@@ -220,7 +223,6 @@ mkDerivation {
     text
     tinylog
     types-common
-    wai-utilities
     wire-api
   ];
   benchmarkHaskellDepends = [

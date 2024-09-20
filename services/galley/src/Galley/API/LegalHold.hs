@@ -34,7 +34,7 @@ import Brig.Types.Connection (UpdateConnectionsInternal (..))
 import Brig.Types.Team.LegalHold (legalHoldService, viewLegalHoldService)
 import Control.Exception (assert)
 import Control.Lens (view, (^.))
-import Data.ByteString.Conversion (toByteString, toByteString')
+import Data.ByteString.Conversion (toByteString)
 import Data.Id
 import Data.LegalHold (UserLegalHoldStatus (..), defUserLegalHoldStatus)
 import Data.List.Split (chunksOf)
@@ -44,6 +44,7 @@ import Data.Qualified
 import Data.Range (toRange)
 import Data.Time.Clock
 import Galley.API.Error
+import Galley.API.LegalHold.Get
 import Galley.API.LegalHold.Team
 import Galley.API.Query (iterateConversations)
 import Galley.API.Update (removeMemberFromLocalConv)
@@ -67,6 +68,7 @@ import Polysemy.Input
 import Polysemy.TinyLog qualified as P
 import System.Logger.Class qualified as Log
 import Wire.API.Conversation (ConvType (..))
+import Wire.API.Conversation.Protocol
 import Wire.API.Conversation.Role
 import Wire.API.Error
 import Wire.API.Error.Galley
@@ -290,44 +292,6 @@ removeSettings' tid =
       LHService.removeLegalHold tid (tUnqualified luid)
       changeLegalholdStatusAndHandlePolicyConflicts tid luid (member ^. legalHoldStatus) UserLegalHoldDisabled -- (support for withdrawing consent is not planned yet.)
 
--- | Learn whether a user has LH enabled and fetch pre-keys.
--- Note that this is accessible to ANY authenticated user, even ones outside the team
-getUserStatus ::
-  forall r.
-  ( Member (Error InternalError) r,
-    Member (ErrorS 'TeamMemberNotFound) r,
-    Member LegalHoldStore r,
-    Member TeamStore r,
-    Member P.TinyLog r
-  ) =>
-  Local UserId ->
-  TeamId ->
-  UserId ->
-  Sem r Public.UserLegalHoldStatusResponse
-getUserStatus _lzusr tid uid = do
-  teamMember <- noteS @'TeamMemberNotFound =<< getTeamMember tid uid
-  let status = view legalHoldStatus teamMember
-  (mlk, lcid) <- case status of
-    UserLegalHoldNoConsent -> pure (Nothing, Nothing)
-    UserLegalHoldDisabled -> pure (Nothing, Nothing)
-    UserLegalHoldPending -> makeResponseDetails
-    UserLegalHoldEnabled -> makeResponseDetails
-  pure $ UserLegalHoldStatusResponse status mlk lcid
-  where
-    makeResponseDetails :: Sem r (Maybe LastPrekey, Maybe ClientId)
-    makeResponseDetails = do
-      mLastKey <- fmap snd <$> LegalHoldData.selectPendingPrekeys uid
-      lastKey <- case mLastKey of
-        Nothing -> do
-          P.err . Log.msg $
-            "expected to find a prekey for user: "
-              <> toByteString' uid
-              <> " but none was found"
-          throw NoPrekeyForUser
-        Just lstKey -> pure lstKey
-      let clientId = clientIdFromPrekey . unpackLastPrekey $ lastKey
-      pure (Just lastKey, Just clientId)
-
 -- | Change 'UserLegalHoldStatus' from no consent to disabled.  FUTUREWORK:
 -- @withdrawExplicitConsentH@ (lots of corner cases we'd have to implement for that to pan
 -- out).
@@ -382,6 +346,7 @@ requestDevice ::
     Member (ErrorS 'LegalHoldNotEnabled) r,
     Member (ErrorS 'LegalHoldServiceBadResponse) r,
     Member (ErrorS 'LegalHoldServiceNotRegistered) r,
+    Member (ErrorS 'MLSLegalholdIncompatible) r,
     Member (ErrorS 'NotATeamMember) r,
     Member (ErrorS 'NoUserLegalHoldConsent) r,
     Member (ErrorS OperationDenied) r,
@@ -429,6 +394,12 @@ requestDevice lzusr tid uid = do
     lhs@UserLegalHoldDisabled -> RequestDeviceSuccess <$ provisionLHDevice zusr luid lhs
     UserLegalHoldNoConsent -> throwS @'NoUserLegalHoldConsent
   where
+    disallowIfMLSUser :: Local UserId -> Sem r ()
+    disallowIfMLSUser luid = do
+      void $ iterateConversations luid (toRange (Proxy @500)) $ \convs -> do
+        when (any (\c -> c.convProtocol /= ProtocolProteus) convs) $ do
+          throwS @'MLSLegalholdIncompatible
+
     -- Wire's LH service that galley is usually calling here is idempotent in device creation,
     -- ie. it returns the existing device on multiple calls to `/init`, like here:
     -- https://github.com/wireapp/legalhold/blob/e0a241162b9dbc841f12fbc57c8a1e1093c7e83a/src/main/java/com/wire/bots/hold/resource/InitiateResource.java#L42
@@ -438,6 +409,7 @@ requestDevice lzusr tid uid = do
     -- device at (almost) the same time.
     provisionLHDevice :: UserId -> Local UserId -> UserLegalHoldStatus -> Sem r ()
     provisionLHDevice zusr luid userLHStatus = do
+      disallowIfMLSUser luid
       (lastPrekey', prekeys) <- requestDeviceFromService luid
       -- We don't distinguish the last key here; brig will do so when the device is added
       LegalHoldData.insertPendingPrekeys (tUnqualified luid) (unpackLastPrekey lastPrekey' : prekeys)

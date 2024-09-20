@@ -20,7 +20,7 @@ module Test.Teams where
 import API.Brig
 import API.BrigInternal (createUser, getInvitationCode, refreshIndex)
 import API.Common
-import API.Galley (getTeamMembers)
+import API.Galley (getTeam, getTeamMembers)
 import API.GalleyInternal (setTeamFeatureStatus)
 import Control.Monad.Codensity (Codensity (runCodensity))
 import Control.Monad.Extra (findM)
@@ -49,31 +49,37 @@ testInvitePersonalUserToTeam = do
         bindResponse (listInvitations owner tid) $ \resp -> do
           resp.status `shouldMatchInt` 200
           resp.json %. "invitations" `shouldMatch` ([] :: [()])
+
         ownerId <- owner %. "id" & asString
         setTeamFeatureStatus domain tid "exposeInvitationURLsToTeamAdmin" "enabled" >>= assertSuccess
         user <- createUser domain def >>= getJSON 201
         uid <- user %. "id" >>= asString
         email <- user %. "email" >>= asString
+
         inv <- postInvitation owner (PostInvitation (Just email) Nothing) >>= getJSON 201
         checkListInvitations owner tid email
         code <- getInvitationCode owner inv >>= getJSON 200 >>= (%. "code") & asString
         inv %. "url" & asString >>= assertUrlContainsCode code
         acceptTeamInvitation user code Nothing >>= assertStatus 400
         acceptTeamInvitation user code (Just "wrong-password") >>= assertStatus 403
+
         void $ withWebSockets [user] $ \wss -> do
           acceptTeamInvitation user code (Just defPassword) >>= assertSuccess
           for wss $ \ws -> do
             n <- awaitMatch isUserUpdatedNotif ws
             n %. "payload.0.user.team" `shouldMatch` tid
+
         bindResponse (getSelf user) $ \resp -> do
           resp.status `shouldMatchInt` 200
           resp.json %. "team" `shouldMatch` tid
+
         -- a team member can now find the former personal user in the team
         bindResponse (getTeamMembers tm tid) $ \resp -> do
           resp.status `shouldMatchInt` 200
           members <- resp.json %. "members" >>= asList
           ids <- for members ((%. "user") >=> asString)
           ids `shouldContain` [uid]
+
         -- the former personal user can now see other team members
         bindResponse (getTeamMembers user tid) $ \resp -> do
           resp.status `shouldMatchInt` 200
@@ -82,12 +88,14 @@ testInvitePersonalUserToTeam = do
           tmId <- tm %. "id" & asString
           ids `shouldContain` [ownerId]
           ids `shouldContain` [tmId]
+
         -- the former personal user can now search for the owner
         bindResponse (searchContacts user (owner %. "name") domain) $ \resp -> do
           resp.status `shouldMatchInt` 200
           documents <- resp.json %. "documents" >>= asList
           ids <- for documents ((%. "id") >=> asString)
           ids `shouldContain` [ownerId]
+
         refreshIndex domain
         -- a team member can now search for the former personal user
         bindResponse (searchContacts tm (user %. "name") domain) $ \resp -> do
@@ -164,3 +172,33 @@ testTeamUserCannotBeInvited = do
   (owner2, _, _) <- createTeam OwnDomain 0
   email <- tm %. "email" >>= asString
   postInvitation owner2 (PostInvitation (Just email) Nothing) >>= assertStatus 409
+
+testUpgradePersonalToTeam :: (HasCallStack) => App ()
+testUpgradePersonalToTeam = do
+  alice <- randomUser OwnDomain def
+  let teamName = "wonderland"
+  tid <- bindResponse (upgradePersonalToTeam alice teamName) $ \resp -> do
+    resp.status `shouldMatchInt` 200
+    resp.json %. "team_name" `shouldMatch` teamName
+    resp.json %. "team_id"
+
+  alice' <- getUser alice alice >>= getJSON 200
+  alice' %. "team" `shouldMatch` tid
+
+  team <- getTeam alice tid >>= getJSON 200
+  team %. "name" `shouldMatch` teamName
+
+  bindResponse (getTeamMembers alice tid) $ \resp -> do
+    resp.status `shouldMatchInt` 200
+    owner <- asList (resp.json %. "members") >>= assertOne
+    owner %. "user" `shouldMatch` (alice %. "id")
+    shouldBeNull $ owner %. "created_at"
+    shouldBeNull $ owner %. "created_by"
+
+testUpgradePersonalToTeamAlreadyInATeam :: (HasCallStack) => App ()
+testUpgradePersonalToTeamAlreadyInATeam = do
+  (alice, _, _) <- createTeam OwnDomain 0
+
+  bindResponse (upgradePersonalToTeam alice "wonderland") $ \resp -> do
+    resp.status `shouldMatchInt` 403
+    resp.json %. "label" `shouldMatch` "user-already-in-a-team"

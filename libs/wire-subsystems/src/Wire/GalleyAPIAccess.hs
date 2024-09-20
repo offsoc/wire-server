@@ -31,6 +31,7 @@ import Wire.API.Routes.Internal.Galley.TeamsIntra qualified as Team
 import Wire.API.Team
 import Wire.API.Team.Conversation qualified as Conv
 import Wire.API.Team.Feature
+import Wire.API.Team.LegalHold
 import Wire.API.Team.Member qualified as Team
 import Wire.API.Team.Role
 import Wire.API.Team.SearchVisibility
@@ -72,7 +73,7 @@ data GalleyAPIAccess m a where
     GalleyAPIAccess m Bool
   CreateTeam ::
     UserId ->
-    BindingNewTeam ->
+    NewTeam ->
     TeamId ->
     GalleyAPIAccess m ()
   GetTeamMember ::
@@ -94,6 +95,8 @@ data GalleyAPIAccess m a where
   GetTeamLegalHoldStatus ::
     TeamId ->
     GalleyAPIAccess m (LockableFeature LegalholdConfig)
+  GetUserLegalholdStatus ::
+    Local UserId -> TeamId -> GalleyAPIAccess m UserLegalHoldStatusResponse
   GetTeamSearchVisibility ::
     TeamId ->
     GalleyAPIAccess m TeamSearchVisibility
@@ -109,6 +112,12 @@ data GalleyAPIAccess m a where
   GetAllTeamFeaturesForUser ::
     Maybe UserId ->
     GalleyAPIAccess m AllTeamFeatures
+  GetFeatureConfigForTeam ::
+    ( IsFeatureConfig feature,
+      Typeable feature
+    ) =>
+    TeamId ->
+    GalleyAPIAccess m (LockableFeature feature)
   GetVerificationCodeEnabled ::
     TeamId ->
     GalleyAPIAccess m Bool

@@ -31,8 +31,6 @@ import Brig.API.User qualified as API
 import Brig.App
 import Brig.Data.Connection qualified as Data
 import Brig.Data.User qualified as Data
-import Brig.Effects.FederationConfigStore (FederationConfigStore)
-import Brig.Effects.FederationConfigStore qualified as E
 import Brig.IO.Intra (notify)
 import Brig.Options
 import Brig.User.API.Handle
@@ -72,11 +70,14 @@ import Wire.API.UserEvent
 import Wire.API.UserMap (UserMap)
 import Wire.DeleteQueue
 import Wire.Error
+import Wire.FederationConfigStore (FederationConfigStore)
+import Wire.FederationConfigStore qualified as E
 import Wire.GalleyAPIAccess (GalleyAPIAccess)
 import Wire.NotificationSubsystem
 import Wire.Sem.Concurrency
 import Wire.UserStore
-import Wire.UserSubsystem
+import Wire.UserSubsystem (UserSubsystem)
+import Wire.UserSubsystem qualified as UserSubsystem
 
 type FederationAPI = "federation" :> BrigApi
 
@@ -167,7 +168,7 @@ getUserByHandle domain handle = do
           pure Nothing
         Just ownerId -> do
           localOwnerId <- qualifyLocal ownerId
-          liftSem $ getLocalUserProfile localOwnerId
+          liftSem $ UserSubsystem.getLocalUserProfile localOwnerId
 
 getUsersByIds ::
   (Member UserSubsystem r) =>
@@ -176,7 +177,7 @@ getUsersByIds ::
   ExceptT HttpError (AppT r) [UserProfile]
 getUsersByIds _ uids = do
   luids <- qualifyLocal uids
-  lift $ liftSem $ getLocalUserProfiles luids
+  lift $ liftSem $ UserSubsystem.getLocalUserProfiles luids
 
 claimPrekey :: (Member DeleteQueue r) => Domain -> (UserId, ClientId) -> (Handler r) (Maybe ClientPrekey)
 claimPrekey _ (user, client) = do
@@ -193,7 +194,13 @@ claimMultiPrekeyBundle ::
   Handler r UserClientPrekeyMap
 claimMultiPrekeyBundle _ uc = API.claimLocalMultiPrekeyBundles LegalholdPlusFederationNotImplemented uc !>> clientError
 
-fedClaimKeyPackages :: Domain -> ClaimKeyPackageRequest -> Handler r (Maybe KeyPackageBundle)
+fedClaimKeyPackages ::
+  ( Member GalleyAPIAccess r,
+    Member UserStore r
+  ) =>
+  Domain ->
+  ClaimKeyPackageRequest ->
+  Handler r (Maybe KeyPackageBundle)
 fedClaimKeyPackages domain ckpr =
   isMLSEnabled >>= \case
     True -> do
@@ -252,7 +259,7 @@ searchUsers domain (SearchRequest searchTerm mTeam mOnlyInTeams) = do
               mFoundUserTeamId <- lift $ wrapClient $ Data.lookupUserTeam foundUser
               localFoundUser <- qualifyLocal foundUser
               if isTeamAllowed mOnlyInTeams mFoundUserTeamId
-                then lift $ liftSem $ (fmap contactFromProfile . maybeToList) <$> getLocalUserProfile localFoundUser
+                then lift $ liftSem $ (fmap contactFromProfile . maybeToList) <$> UserSubsystem.getLocalUserProfile localFoundUser
                 else pure []
       | otherwise = pure []
 

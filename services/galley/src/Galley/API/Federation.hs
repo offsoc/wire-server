@@ -626,15 +626,25 @@ sendMLSCommitBundle remoteDomain msr = handleMLSMessageErrors $ do
   ibundle <- noteS @'MLSUnsupportedMessage $ mkIncomingBundle bundle
   (ctype, qConvOrSub) <- getConvFromGroupId ibundle.groupId
   when (qUnqualified qConvOrSub /= msr.convOrSubId) $ throwS @'MLSGroupConversationMismatch
-  MLSMessageResponseUpdates . map lcuUpdate
-    <$> postMLSCommitBundle
-      loc
-      (tUntagged sender)
-      msr.senderClient
-      ctype
-      qConvOrSub
-      Nothing
-      ibundle
+  -- this cannot throw the error since we always pass the sender which is qualified to be remote
+  MLSMessageResponseUpdates
+    . fmap lcuUpdate
+    <$> mapToRuntimeError @MLSLegalholdIncompatible
+      (InternalErrorWithDescription "expected group conversation while handling policy conflicts")
+      ( postMLSCommitBundle
+          loc
+          -- Type application to prevent future changes from introducing errors.
+          -- It is only safe to assume that we can discard the error when the sender
+          -- is actually remote.
+          -- Since `tUntagged` works on local and remote, a future changed may
+          -- go unchecked without this.
+          (tUntagged @QRemote sender)
+          msr.senderClient
+          ctype
+          qConvOrSub
+          Nothing
+          ibundle
+      )
 
 sendMLSMessage ::
   ( Member BackendNotificationQueueAccess r,

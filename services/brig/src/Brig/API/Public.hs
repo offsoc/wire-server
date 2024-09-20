@@ -41,8 +41,7 @@ import Brig.Calling.API qualified as Calling
 import Brig.Data.Connection qualified as Data
 import Brig.Data.Nonce as Nonce
 import Brig.Data.User qualified as Data
-import Brig.Effects.ConnectionStore (ConnectionStore)
-import Brig.Effects.FederationConfigStore (FederationConfigStore)
+import Brig.Effects.ConnectionStore
 import Brig.Effects.JwtTools (JwtTools)
 import Brig.Effects.PublicKeyBundle (PublicKeyBundle)
 import Brig.Effects.SFT
@@ -55,13 +54,11 @@ import Brig.Team.Template (TeamTemplates)
 import Brig.Types.Activation (ActivationPair)
 import Brig.Types.Intra (UserAccount (UserAccount, accountUser))
 import Brig.User.API.Handle qualified as Handle
-import Brig.User.API.Search (teamUserSearch)
-import Brig.User.API.Search qualified as Search
 import Brig.User.Auth.Cookie qualified as Auth
 import Cassandra qualified as C
 import Cassandra qualified as Data
 import Control.Error hiding (bool, note)
-import Control.Lens (view, (.~), (?~), (^.))
+import Control.Lens (view, (.~), (?~))
 import Control.Monad.Catch (throwM)
 import Control.Monad.Except
 import Data.Aeson hiding (json)
@@ -86,13 +83,15 @@ import Data.Qualified
 import Data.Range
 import Data.Schema ()
 import Data.Text.Encoding qualified as Text
-import Data.Time.Clock (UTCTime)
+import Data.Time.Clock
 import Data.ZAuth.Token qualified as ZAuth
 import FileEmbedLzma
 import Imports hiding (head)
 import Network.Socket (PortNumber)
-import Network.Wai.Utilities as Utilities
+import Network.Wai.Utilities (CacheControl (..), (!>>))
+import Network.Wai.Utilities qualified as Utilities
 import Polysemy
+import Polysemy.Error
 import Polysemy.Input (Input)
 import Polysemy.TinyLog (TinyLog)
 import Servant hiding (Handler, JSON, addHeader, respond)
@@ -143,6 +142,7 @@ import Wire.API.User.Client.Prekey qualified as Public
 import Wire.API.User.Handle qualified as Public
 import Wire.API.User.Password qualified as Public
 import Wire.API.User.RichInfo qualified as Public
+import Wire.API.User.Search qualified as Public
 import Wire.API.UserMap qualified as Public
 import Wire.API.Wrapped qualified as Public
 import Wire.AuthenticationSubsystem (AuthenticationSubsystem, createPasswordResetCode, resetPassword)
@@ -151,6 +151,8 @@ import Wire.DeleteQueue
 import Wire.EmailSending (EmailSending)
 import Wire.EmailSubsystem
 import Wire.Error
+import Wire.Events (Events)
+import Wire.FederationConfigStore (FederationConfigStore)
 import Wire.GalleyAPIAccess (GalleyAPIAccess)
 import Wire.GalleyAPIAccess qualified as GalleyAPIAccess
 import Wire.InvitationCodeStore
@@ -161,11 +163,13 @@ import Wire.PropertySubsystem
 import Wire.Sem.Concurrency
 import Wire.Sem.Jwk (Jwk)
 import Wire.Sem.Now (Now)
-import Wire.Sem.Paging.Cassandra (InternalPaging)
+import Wire.Sem.Paging.Cassandra
 import Wire.UserKeyStore
+import Wire.UserSearch.Types
 import Wire.UserStore (UserStore)
 import Wire.UserSubsystem hiding (checkHandle, checkHandles)
 import Wire.UserSubsystem qualified as User
+import Wire.UserSubsystem.Error
 import Wire.VerificationCode
 import Wire.VerificationCodeGen
 import Wire.VerificationCodeSubsystem
@@ -262,36 +266,38 @@ internalEndpointsSwaggerDocsAPI service examplePort swagger Nothing =
 
 servantSitemap ::
   forall r p.
-  ( Member BlockListStore r,
-    Member DeleteQueue r,
-    Member (Concurrency 'Unsafe) r,
-    Member (ConnectionStore InternalPaging) r,
-    Member (Embed HttpClientIO) r,
+  ( Member (Embed HttpClientIO) r,
     Member (Embed IO) r,
-    Member FederationConfigStore r,
+    Member (Error UserSubsystemError) r,
     Member (Input (Local ())) r,
-    Member AuthenticationSubsystem r,
     Member (Input UTCTime) r,
-    Member Jwk r,
+    Member (Input TeamTemplates) r,
+    Member (UserPendingActivationStore p) r,
+    Member AuthenticationSubsystem r,
+    Member DeleteQueue r,
+    Member EmailSending r,
+    Member EmailSubsystem r,
+    Member Events r,
+    Member FederationConfigStore r,
     Member GalleyAPIAccess r,
+    Member InvitationCodeStore r,
+    Member Jwk r,
     Member JwtTools r,
     Member NotificationSubsystem r,
-    Member UserSubsystem r,
-    Member UserStore r,
-    Member PasswordStore r,
-    Member UserKeyStore r,
     Member Now r,
+    Member PasswordResetCodeStore r,
+    Member PasswordStore r,
+    Member PropertySubsystem r,
     Member PublicKeyBundle r,
     Member SFT r,
     Member TinyLog r,
-    Member (UserPendingActivationStore p) r,
-    Member EmailSubsystem r,
-    Member EmailSending r,
+    Member UserKeyStore r,
+    Member UserStore r,
+    Member UserSubsystem r,
     Member VerificationCodeSubsystem r,
-    Member PropertySubsystem r,
-    Member PasswordResetCodeStore r,
-    Member InvitationCodeStore r,
-    Member (Input TeamTemplates) r
+    Member (Concurrency 'Unsafe) r,
+    Member BlockListStore r,
+    Member (ConnectionStore InternalPaging) r
   ) =>
   ServerT BrigAPI (Handler r)
 servantSitemap =
@@ -345,7 +351,8 @@ servantSitemap =
 
     accountAPI :: ServerT AccountAPI (Handler r)
     accountAPI =
-      Named @"register" (callsFed (exposeAnnotations createUser))
+      Named @"upgrade-personal-to-team" upgradePersonalToTeam
+        :<|> Named @"register" (callsFed (exposeAnnotations createUser))
         :<|> Named @"verify-delete" (callsFed (exposeAnnotations verifyDeleteUser))
         :<|> Named @"get-activate" (callsFed (exposeAnnotations activate))
         :<|> Named @"post-activate" (callsFed (exposeAnnotations activateKey))
@@ -401,7 +408,7 @@ servantSitemap =
         :<|> Named @"get-connection" getConnection
         :<|> Named @"update-connection-unqualified" (callsFed (exposeAnnotations updateLocalConnection))
         :<|> Named @"update-connection" (callsFed (exposeAnnotations updateConnection))
-        :<|> Named @"search-contacts" (callsFed (exposeAnnotations Search.search))
+        :<|> Named @"search-contacts" (callsFed (exposeAnnotations searchUsersHandler))
 
     propertiesAPI :: ServerT PropertiesAPI (Handler r)
     propertiesAPI =
@@ -428,7 +435,7 @@ servantSitemap =
 
     searchAPI :: ServerT SearchAPI (Handler r)
     searchAPI =
-      Named @"browse-team" teamUserSearch
+      Named @"browse-team" browseTeamHandler
 
     authAPI :: ServerT AuthAPI (Handler r)
     authAPI =
@@ -459,6 +466,21 @@ servantSitemap =
 
 ---------------------------------------------------------------------------
 -- Handlers
+
+browseTeamHandler ::
+  (Member UserSubsystem r) =>
+  UserId ->
+  TeamId ->
+  Maybe Text ->
+  Maybe Public.RoleFilter ->
+  Maybe Public.TeamUserSearchSortBy ->
+  Maybe Public.TeamUserSearchSortOrder ->
+  Maybe (Range 1 500 Int) ->
+  Maybe Public.PagingState ->
+  Handler r (Public.SearchResult Public.TeamContact)
+browseTeamHandler uid tid mQuery mRoleFilter mTeamUserSearchSortBy mTeamUserSearchSortOrder mMaxResults mPagingState = do
+  let browseTeamFilters = BrowseTeamFilters tid mQuery mRoleFilter mTeamUserSearchSortBy mTeamUserSearchSortOrder
+  lift . liftSem $ User.browseTeam uid browseTeamFilters mMaxResults mPagingState
 
 setPropertyH :: (Member PropertySubsystem r) => UserId -> ConnId -> Public.PropertyKey -> Public.RawPropertyValue -> Handler r ()
 setPropertyH u c key raw = lift . liftSem $ setProperty u c key raw
@@ -557,16 +579,12 @@ getMultiUserPrekeyBundleH zusr qualUserClients = do
 
 addClient ::
   ( Member GalleyAPIAccess r,
-    Member (Embed HttpClientIO) r,
     Member DeleteQueue r,
     Member NotificationSubsystem r,
-    Member TinyLog r,
-    Member (Input (Local ())) r,
-    Member (Input UTCTime) r,
-    Member (ConnectionStore InternalPaging) r,
     Member EmailSubsystem r,
-    Member UserSubsystem r,
-    Member VerificationCodeSubsystem r
+    Member VerificationCodeSubsystem r,
+    Member Events r,
+    Member UserSubsystem r
   ) =>
   Local UserId ->
   ConnId ->
@@ -684,20 +702,35 @@ createAccessToken method luid cid proof = do
   let link = safeLink (Proxy @api) (Proxy @endpoint) cid
   API.createAccessToken luid cid method link proof !>> certEnrollmentError
 
+upgradePersonalToTeam ::
+  ( Member (ConnectionStore InternalPaging) r,
+    Member (Embed HttpClientIO) r,
+    Member EmailSubsystem r,
+    Member GalleyAPIAccess r,
+    Member (Input (Local ())) r,
+    Member (Input UTCTime) r,
+    Member NotificationSubsystem r,
+    Member TinyLog r,
+    Member UserSubsystem r
+  ) =>
+  Local UserId ->
+  Public.BindingNewTeamUser ->
+  Handler r (Either Public.UpgradePersonalToTeamError Public.CreateUserTeam)
+upgradePersonalToTeam luid bNewTeam =
+  lift . runExceptT $
+    API.upgradePersonalToTeam luid bNewTeam
+
 -- | docs/reference/user/registration.md {#RefRegistration}
 createUser ::
   ( Member BlockListStore r,
     Member GalleyAPIAccess r,
     Member InvitationCodeStore r,
     Member (UserPendingActivationStore p) r,
-    Member TinyLog r,
-    Member (Embed HttpClientIO) r,
-    Member NotificationSubsystem r,
-    Member UserKeyStore r,
     Member (Input (Local ())) r,
-    Member (Input UTCTime) r,
-    Member (ConnectionStore InternalPaging) r,
+    Member TinyLog r,
+    Member UserKeyStore r,
     Member EmailSubsystem r,
+    Member Events r,
     Member UserSubsystem r,
     Member PasswordResetCodeStore r,
     Member EmailSending r
@@ -754,14 +787,14 @@ createUser (Public.NewUserPublic new) = lift . runExceptT $ do
     sendActivationEmail email name (key, code) locale mTeamUser
       | Just teamUser <- mTeamUser,
         Public.NewTeamCreator creator <- teamUser,
-        let Public.BindingNewTeamUser (Public.BindingNewTeam team) _ = creator =
-          liftSem $ sendTeamActivationMail email name key code locale (fromRange $ team ^. Public.newTeamName)
+        let Public.BindingNewTeamUser team _ = creator =
+          liftSem $ sendTeamActivationMail email name key code locale (fromRange $ team.newTeamName)
       | otherwise =
           liftSem $ sendActivationMail email name key code locale
 
-    sendWelcomeEmail :: (Member EmailSending r) => Public.EmailAddress -> CreateUserTeam -> Public.NewTeamUser -> Maybe Public.Locale -> (AppT r) ()
+    sendWelcomeEmail :: (Member EmailSending r) => Public.EmailAddress -> Public.CreateUserTeam -> Public.NewTeamUser -> Maybe Public.Locale -> (AppT r) ()
     -- NOTE: Welcome e-mails for the team creator are not dealt by brig anymore
-    sendWelcomeEmail e (CreateUserTeam t n) newUser l = case newUser of
+    sendWelcomeEmail e (Public.CreateUserTeam t n) newUser l = case newUser of
       Public.NewTeamCreator _ ->
         pure ()
       Public.NewTeamMember _ ->
@@ -914,14 +947,9 @@ removePhone :: UserId -> Handler r (Maybe Public.RemoveIdentityError)
 removePhone _ = (lift . pure) Nothing
 
 removeEmail ::
-  ( Member (Embed HttpClientIO) r,
-    Member NotificationSubsystem r,
-    Member UserKeyStore r,
-    Member TinyLog r,
-    Member (Input (Local ())) r,
-    Member (Input UTCTime) r,
-    Member (ConnectionStore InternalPaging) r,
-    Member UserSubsystem r
+  ( Member UserKeyStore r,
+    Member UserSubsystem r,
+    Member Events r
   ) =>
   UserId ->
   Handler r (Maybe Public.RemoveIdentityError)
@@ -1029,6 +1057,16 @@ sendActivationCode ac = do
   customerExtensionCheckBlockedDomains email
   checkAllowlist email
   API.sendActivationCode email (ac.locale) !>> sendActCodeError
+
+searchUsersHandler ::
+  (Member UserSubsystem r) =>
+  Local UserId ->
+  Text ->
+  Maybe Domain ->
+  Maybe (Range 1 500 Int32) ->
+  Handler r (Public.SearchResult Public.Contact)
+searchUsersHandler luid term mDomain mMaxResults =
+  lift . liftSem $ User.searchUsers luid term mDomain mMaxResults
 
 -- | If the user presents an email address from a blocked domain, throw an error.
 --
@@ -1180,13 +1218,11 @@ deleteSelfUser ::
     Member NotificationSubsystem r,
     Member UserStore r,
     Member PasswordStore r,
-    Member (Input (Local ())) r,
-    Member (Input UTCTime) r,
-    Member (ConnectionStore InternalPaging) r,
     Member EmailSubsystem r,
     Member UserSubsystem r,
     Member VerificationCodeSubsystem r,
-    Member PropertySubsystem r
+    Member PropertySubsystem r,
+    Member Events r
   ) =>
   Local UserId ->
   Public.DeleteUser ->
@@ -1198,14 +1234,12 @@ verifyDeleteUser ::
   ( Member (Embed HttpClientIO) r,
     Member NotificationSubsystem r,
     Member UserStore r,
-    Member UserSubsystem r,
     Member TinyLog r,
-    Member (Input (Local ())) r,
     Member UserKeyStore r,
-    Member (Input UTCTime) r,
-    Member (ConnectionStore InternalPaging) r,
     Member VerificationCodeSubsystem r,
-    Member PropertySubsystem r
+    Member PropertySubsystem r,
+    Member UserSubsystem r,
+    Member Events r
   ) =>
   Public.VerifyDeleteUser ->
   Handler r ()
@@ -1216,7 +1250,8 @@ updateUserEmail ::
   ( Member BlockListStore r,
     Member UserKeyStore r,
     Member GalleyAPIAccess r,
-    Member EmailSubsystem r
+    Member EmailSubsystem r,
+    Member UserSubsystem r
   ) =>
   UserId ->
   UserId ->
@@ -1247,13 +1282,9 @@ updateUserEmail zuserId emailOwnerId (Public.EmailUpdate email) = do
 activate ::
   ( Member GalleyAPIAccess r,
     Member TinyLog r,
-    Member (Embed HttpClientIO) r,
-    Member NotificationSubsystem r,
     Member UserSubsystem r,
-    Member (Input (Local ())) r,
-    Member (Input UTCTime) r,
-    Member PasswordResetCodeStore r,
-    Member (ConnectionStore InternalPaging) r
+    Member Events r,
+    Member PasswordResetCodeStore r
   ) =>
   Public.ActivationKey ->
   Public.ActivationCode ->
@@ -1266,13 +1297,9 @@ activate k c = do
 activateKey ::
   ( Member GalleyAPIAccess r,
     Member TinyLog r,
-    Member (Embed HttpClientIO) r,
-    Member NotificationSubsystem r,
+    Member Events r,
     Member UserSubsystem r,
-    Member (Input (Local ())) r,
-    Member (Input UTCTime) r,
-    Member PasswordResetCodeStore r,
-    Member (ConnectionStore InternalPaging) r
+    Member PasswordResetCodeStore r
   ) =>
   Public.Activate ->
   (Handler r) ActivationRespWithStatus
