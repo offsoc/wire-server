@@ -1,7 +1,8 @@
 /* This script runs before every request in Postman / Newman */
+const crypto = require('crypto');
 
 if (pm.environment.get("wire_setup_complete") !== "complete") {
-    const randomString = function() { return Math.random().toString(36).substr(2, 5); };
+    const randomString = function() { return crypto.randomBytes(3).toString('base64').substr(0, 5); };
     const randomEmail = function () { return randomString() +  "@example.com";};
 
     /* Folder: User tests */
