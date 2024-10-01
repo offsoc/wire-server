@@ -15,9 +15,13 @@
 -- You should have received a copy of the GNU Affero General Public License along
 -- with this program. If not, see <https://www.gnu.org/licenses/>.
 
-module Gundeck.Types.Push
-  ( module V2,
+module Test.Wire.API.Golden.Manual.PushRemove
+  ( testObject_PushRemove_1,
   )
 where
 
-import Gundeck.Types.Push.V2 as V2
+import Test.Wire.API.Golden.Manual.Token (testObject_Token_1)
+import Wire.API.Event.Gundeck
+
+testObject_PushRemove_1 :: PushRemove
+testObject_PushRemove_1 = PushRemove testObject_Token_1

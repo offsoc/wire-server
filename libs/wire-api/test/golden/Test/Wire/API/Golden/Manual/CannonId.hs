@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- This file is part of the Wire Server implementation.
 --
 -- Copyright (C) 2022 Wire Swiss GmbH <opensource@wire.com>
@@ -17,27 +15,20 @@
 -- You should have received a copy of the GNU Affero General Public License along
 -- with this program. If not, see <https://www.gnu.org/licenses/>.
 
-module Gundeck.Types.Event where
+module Test.Wire.API.Golden.Manual.CannonId
+  ( testObject_CannonId_1,
+    testObject_CannonId_2,
+    testObject_CannonId_3,
+  )
+where
 
-import Data.Aeson
-import Data.Aeson.KeyMap qualified as KeyMap
-import Data.Json.Util
-import Gundeck.Types.Push
-import Imports
+import Wire.API.CannonId
 
-newtype PushRemove = PushRemove PushToken
-  deriving (Eq, Show)
+testObject_CannonId_1 :: CannonId
+testObject_CannonId_1 = CannonId ""
 
-instance FromJSON PushRemove where
-  parseJSON = withObject "push-removed object" $ \o ->
-    PushRemove <$> o .: "token"
+testObject_CannonId_2 :: CannonId
+testObject_CannonId_2 = CannonId "sdfiou"
 
-instance ToJSON PushRemove where
-  toJSON = Object . toJSONObject
-
-instance ToJSONObject PushRemove where
-  toJSONObject (PushRemove t) =
-    KeyMap.fromList
-      [ "type" .= ("user.push-remove" :: Text),
-        "token" .= t
-      ]
+testObject_CannonId_3 :: CannonId
+testObject_CannonId_3 = CannonId "1!_*`'\""

@@ -3,40 +3,38 @@
 # must be regenerated whenever local packages are added or removed, or
 # dependencies are added or removed.
 { mkDerivation
-, aeson
-, attoparsec
 , base
-, bytestring
-, bytestring-conversion
-, containers
+, cassandra-util
+, conduit
+, cql
 , gitignoreSource
 , imports
 , lens
 , lib
-, network-uri
-, servant
-, text
+, optparse-applicative
+, time
+, tinylog
 , types-common
-, wire-api
 }:
 mkDerivation {
-  pname = "gundeck-types";
-  version = "1.45.0";
+  pname = "team-info";
+  version = "1.0.0";
   src = gitignoreSource ./.;
+  isLibrary = true;
+  isExecutable = true;
   libraryHaskellDepends = [
-    aeson
-    attoparsec
-    base
-    bytestring
-    bytestring-conversion
-    containers
+    cassandra-util
+    conduit
+    cql
     imports
     lens
-    network-uri
-    servant
-    text
+    optparse-applicative
+    time
+    tinylog
     types-common
-    wire-api
   ];
+  executableHaskellDepends = [ base ];
+  description = "get team info from cassandra";
   license = lib.licenses.agpl3Only;
+  mainProgram = "team-info";
 }

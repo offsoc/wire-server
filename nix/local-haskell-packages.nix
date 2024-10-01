@@ -12,7 +12,6 @@
   dns-util = hself.callPackage ../libs/dns-util/default.nix { inherit gitignoreSource; };
   extended = hself.callPackage ../libs/extended/default.nix { inherit gitignoreSource; };
   galley-types = hself.callPackage ../libs/galley-types/default.nix { inherit gitignoreSource; };
-  gundeck-types = hself.callPackage ../libs/gundeck-types/default.nix { inherit gitignoreSource; };
   hscim = hself.callPackage ../libs/hscim/default.nix { inherit gitignoreSource; };
   http2-manager = hself.callPackage ../libs/http2-manager/default.nix { inherit gitignoreSource; };
   imports = hself.callPackage ../libs/imports/default.nix { inherit gitignoreSource; };
@@ -53,6 +52,7 @@
   repair-brig-clients-table = hself.callPackage ../tools/db/repair-brig-clients-table/default.nix { inherit gitignoreSource; };
   repair-handles = hself.callPackage ../tools/db/repair-handles/default.nix { inherit gitignoreSource; };
   service-backfill = hself.callPackage ../tools/db/service-backfill/default.nix { inherit gitignoreSource; };
+  team-info = hself.callPackage ../tools/db/team-info/default.nix { inherit gitignoreSource; };
   fedcalls = hself.callPackage ../tools/fedcalls/default.nix { inherit gitignoreSource; };
   mlsstats = hself.callPackage ../tools/mlsstats/default.nix { inherit gitignoreSource; };
   rabbitmq-consumer = hself.callPackage ../tools/rabbitmq-consumer/default.nix { inherit gitignoreSource; };

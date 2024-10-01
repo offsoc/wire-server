@@ -1,26 +1,37 @@
-cabal-version: 1.12
-name:          gundeck-types
-version:       1.45.0
-description:   API types of Gundeck.
+cabal-version: 3.0
+name:          team-info
+version:       1.0.0
+synopsis:      get team info from cassandra
 category:      Network
 author:        Wire Swiss GmbH
 maintainer:    Wire Swiss GmbH <backend@wire.com>
-copyright:     (c) 2017 Wire Swiss GmbH
-license:       AGPL-3
-license-file:  LICENSE
+copyright:     (c) 2024 Wire Swiss GmbH
+license:       AGPL-3.0-only
 build-type:    Simple
 
 library
-  exposed-modules:
-    Gundeck.Types
-    Gundeck.Types.Common
-    Gundeck.Types.Event
-    Gundeck.Types.Presence
-    Gundeck.Types.Push
-    Gundeck.Types.Push.V2
-
-  other-modules:      Paths_gundeck_types
   hs-source-dirs:     src
+  exposed-modules:
+    TeamInfo.Lib
+    TeamInfo.Types
+
+  ghc-options:
+    -O2 -Wall -Wincomplete-uni-patterns -Wincomplete-record-updates
+    -Wpartial-fields -fwarn-tabs -optP-Wno-nonportable-include-path
+    -funbox-strict-fields -threaded -with-rtsopts=-N
+    -Wredundant-constraints -Wunused-packages
+
+  build-depends:
+    , cassandra-util
+    , conduit
+    , cql
+    , imports
+    , lens
+    , optparse-applicative
+    , time
+    , tinylog
+    , types-common
+
   default-extensions:
     AllowAmbiguousTypes
     BangPatterns
@@ -39,6 +50,7 @@ library
     FlexibleInstances
     FunctionalDependencies
     GADTs
+    GeneralizedNewtypeDeriving
     InstanceSigs
     KindSignatures
     LambdaCase
@@ -46,6 +58,7 @@ library
     MultiWayIf
     NamedFieldPuns
     NoImplicitPrelude
+    OverloadedLabels
     OverloadedRecordDot
     OverloadedStrings
     PackageImports
@@ -53,6 +66,7 @@ library
     PolyKinds
     QuasiQuotes
     RankNTypes
+    RecordWildCards
     ScopedTypeVariables
     StandaloneDeriving
     TupleSections
@@ -63,24 +77,16 @@ library
     UndecidableInstances
     ViewPatterns
 
+executable team-info
+  main-is:          Main.hs
+  build-depends:
+    , base
+    , team-info
+
+  hs-source-dirs:   app
+  default-language: Haskell2010
   ghc-options:
     -O2 -Wall -Wincomplete-uni-patterns -Wincomplete-record-updates
     -Wpartial-fields -fwarn-tabs -optP-Wno-nonportable-include-path
+    -funbox-strict-fields -threaded -with-rtsopts=-N
     -Wredundant-constraints -Wunused-packages
-
-  build-depends:
-      aeson                  >=2.0.1.0
-    , attoparsec             >=0.10
-    , base                   >=4       && <5
-    , bytestring             >=0.10
-    , bytestring-conversion  >=0.2
-    , containers             >=0.5
-    , imports
-    , lens                   >=4.11
-    , network-uri            >=2.6
-    , servant
-    , text                   >=0.11
-    , types-common           >=0.16
-    , wire-api
-
-  default-language:   GHC2021
