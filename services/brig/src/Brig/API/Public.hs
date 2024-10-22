@@ -156,6 +156,7 @@ import Wire.Events (Events)
 import Wire.FederationConfigStore (FederationConfigStore)
 import Wire.GalleyAPIAccess (GalleyAPIAccess)
 import Wire.GalleyAPIAccess qualified as GalleyAPIAccess
+import Wire.HashPassword (HashPassword)
 import Wire.IndexedUserStore (IndexedUserStore)
 import Wire.InvitationStore
 import Wire.NotificationSubsystem
@@ -170,6 +171,7 @@ import Wire.TeamInvitationSubsystem
 import Wire.UserKeyStore
 import Wire.UserSearch.Types
 import Wire.UserStore (UserStore)
+import Wire.UserStore qualified as UserStore
 import Wire.UserSubsystem hiding (checkHandle, checkHandles)
 import Wire.UserSubsystem qualified as User
 import Wire.UserSubsystem.Error
@@ -303,7 +305,8 @@ servantSitemap ::
     Member (Concurrency 'Unsafe) r,
     Member BlockListStore r,
     Member (ConnectionStore InternalPaging) r,
-    Member IndexedUserStore r
+    Member IndexedUserStore r,
+    Member HashPassword r
   ) =>
   ServerT BrigAPI (Handler r)
 servantSitemap =
@@ -657,7 +660,13 @@ getClientCapabilities uid cid = do
   mclient <- lift (API.lookupLocalClient uid cid)
   maybe (throwStd (errorToWai @'E.ClientNotFound)) (pure . Public.clientCapabilities) mclient
 
-getRichInfo :: (Member UserSubsystem r) => Local UserId -> UserId -> Handler r Public.RichInfoAssocList
+getRichInfo ::
+  ( Member UserSubsystem r,
+    Member UserStore r
+  ) =>
+  Local UserId ->
+  UserId ->
+  Handler r Public.RichInfoAssocList
 getRichInfo lself user = do
   let luser = qualifyAs lself user
   -- Check that both users exist and the requesting user is allowed to see rich info of the
@@ -671,7 +680,7 @@ getRichInfo lself user = do
     (Just t1, Just t2) | t1 == t2 -> pure ()
     _ -> throwStd insufficientTeamPermissions
   -- Query rich info
-  wrapClientE $ fromMaybe mempty <$> API.lookupRichInfo (tUnqualified luser)
+  lift $ liftSem $ fold <$> UserStore.getRichInfo (tUnqualified luser)
 
 getSupportedProtocols ::
   (Member UserSubsystem r) =>
@@ -743,6 +752,7 @@ createUser ::
     Member Events r,
     Member UserSubsystem r,
     Member PasswordResetCodeStore r,
+    Member HashPassword r,
     Member EmailSending r
   ) =>
   Public.NewUserPublic ->
@@ -967,7 +977,14 @@ removeEmail self = lift . exceptTToMaybe $ API.removeEmail self
 checkPasswordExists :: (Member PasswordStore r) => UserId -> (Handler r) Bool
 checkPasswordExists = fmap isJust . lift . liftSem . lookupHashedPassword
 
-changePassword :: (Member PasswordStore r, Member UserStore r) => UserId -> Public.PasswordChange -> (Handler r) (Maybe Public.ChangePasswordError)
+changePassword ::
+  ( Member PasswordStore r,
+    Member UserStore r,
+    Member HashPassword r
+  ) =>
+  UserId ->
+  Public.PasswordChange ->
+  (Handler r) (Maybe Public.ChangePasswordError)
 changePassword u cp = lift . exceptTToMaybe $ API.changePassword u cp
 
 changeLocale ::
